@@ -1,0 +1,52 @@
+# .goreleaser.yml
+# Visit https://goreleaser.com/customization/ for more options
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: "ndppd"
+    main: .
+    binary: ndppd
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+# The archives section with format: binary will attach the binaries directly.
+archives:
+  - id: "ndppd"
+    builds:
+      - "ndppd"
+    format: binary
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - 'Merge pull request'
+      - 'Merge branch'
+
+release:
+  github:
+    owner: kkqy-go
+    name: ndppd
+  draft: false
+  prerelease: auto
+  # extra_files are attached directly to the release.
+  extra_files:
+    - glob: LICENSE
+    - glob: README.md
