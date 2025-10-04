@@ -27,7 +27,11 @@ proxy eth0 {
     # Set the router flag on Neighbor Advertisements.Default is yes.
     router yes
 
-    # When enabled, outgoing Neighbor Solicitations (NS) from a link-local source address will have their source address rewritten to the global address prefix from the matching rule. It is useful in some PVE environments.Default is no.
+    # When enabled, 
+    # outgoing Neighbor Solicitations (NS) from a link-local source 
+    # address will have their source address rewritten to the global 
+    # address prefix from the matching rule. It is useful in some PVE environments.
+    # Default is no.
     rewrite_source no
 
 
@@ -56,7 +60,7 @@ proxy eth0 {
 -   `router [yes|no]`: (Default: `yes`) Whether to set the "is-router" flag in Neighbor Advertisement replies.
 -   `ttl <milliseconds>`: (Default: `30000`) Not currently implemented.
 -   `timeout <milliseconds>`: (Default: `500`) Not currently implemented.
--   `rewrite_source [yes|no]`: (Default: `no`) When enabled, outgoing Neighbor Solicitations (NS) from a link-local source address will have their source address rewritten to the global address prefix from the matching rule.
+-   `rewrite_source [yes|no]`: (Default: `no`) When enabled, outgoing Neighbor Solicitations (NS) from a link-local source address will have their source address rewritten to the global address prefix from the matching rule.It is useful in some PVE environments.
 
 ### Rule Types
 
@@ -93,7 +97,7 @@ sudo ./ndppd -d
 -   `-c <path>`: Path to the configuration file (default: `/etc/ndppd.conf`).
 -   `-d`: Run as a daemon (background process).
 -   `-p <path>`: Path to write a PID file (e.g., `/var/run/ndppd.pid`).
--   `-v`: Verbose logging level (not currently implemented).
+-   `-v <level>`: Verbose logging level.
 
 ## Dependencies
 
