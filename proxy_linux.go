@@ -23,7 +23,7 @@ const (
 )
 
 func startProxyInstance(proxy Proxy) {
-	log.Printf("Starting proxy on interface %s", proxy.Interface)
+	logf(0, "Starting proxy on interface %s", proxy.Interface)
 
 	fd, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW, int(htons(syscall.ETH_P_ALL)))
 	if err != nil {
@@ -49,22 +49,18 @@ func startProxyInstance(proxy Proxy) {
 	for {
 		n, from, err := syscall.Recvfrom(fd, buf, 0)
 		if err != nil {
-			log.Printf("Error reading from raw socket: %v", err)
+			log.Fatalf("Error reading from raw socket: %v", err)
 			continue
 		}
 
 		if fromLL, ok := from.(*syscall.SockaddrLinklayer); ok {
-			if fromLL.Pkttype == syscall.PACKET_MULTICAST || fromLL.Pkttype == syscall.PACKET_OUTGOING {
-				packet := gopacket.NewPacket(buf[:n], layers.LayerTypeEthernet, gopacket.Default)
-				if isNeighborSolicitation(packet) {
-					ipv6Layer := packet.Layer(layers.LayerTypeIPv6)
-					if ipv6Layer != nil {
-						ipv6, _ := ipv6Layer.(*layers.IPv6)
-						log.Printf("Received Neighbor Solicitation: src=%s, dst=%s", ipv6.SrcIP, ipv6.DstIP)
-						handleNeighborSolicitation(packet, proxy, fromLL)
-					} else {
-						log.Printf("Received Neighbor Solicitation packet (could not parse IPv6 layer).")
-					}
+			packet := gopacket.NewPacket(buf[:n], layers.LayerTypeEthernet, gopacket.Default)
+			if isNeighborSolicitation(packet) {
+				ipv6Layer := packet.Layer(layers.LayerTypeIPv6)
+				if ipv6Layer != nil {
+					handleNeighborSolicitation(packet, proxy, fromLL)
+				} else {
+					errorf("Received Neighbor Solicitation packet (could not parse IPv6 layer).")
 				}
 			}
 		}
@@ -74,20 +70,25 @@ func startProxyInstance(proxy Proxy) {
 func handleNeighborSolicitation(packet gopacket.Packet, proxy Proxy, from *syscall.SockaddrLinklayer) {
 	ipv6Layer := packet.Layer(layers.LayerTypeIPv6)
 	if ipv6Layer == nil {
+		errorf("Received Neighbor Solicitation packet (could not parse IPv6 layer).")
 		return
 	}
 	ipv6, _ := ipv6Layer.(*layers.IPv6)
 
 	icmpv6Layer := packet.Layer(layers.LayerTypeICMPv6)
 	if icmpv6Layer == nil {
+		errorf("Received Neighbor Solicitation packet (could not parse ICMPv6 layer).")
 		return
 	}
 	icmpv6, _ := icmpv6Layer.(*layers.ICMPv6)
 
 	var ns layers.ICMPv6NeighborSolicitation
 	err := ns.DecodeFromBytes(icmpv6.Payload, gopacket.NilDecodeFeedback)
+
+	logf(2, "Received Neighbor Solicitation: src=%s, dst=%s, tgt=%s", ipv6.SrcIP, ipv6.DstIP, ns.TargetAddress)
+
 	if err != nil {
-		log.Printf("Error decoding Neighbor Solicitation: %v", err)
+		errorf("Error decoding Neighbor Solicitation: %v", err)
 		return
 	}
 
@@ -95,12 +96,12 @@ func handleNeighborSolicitation(packet gopacket.Packet, proxy Proxy, from *sysca
 		if from != nil && from.Pkttype == syscall.PACKET_OUTGOING && !ipInPrefix(ns.TargetAddress, rule.Address) && proxy.RewriteSource && ipv6.SrcIP.IsLinkLocalUnicast() {
 			_, ipnet, err := net.ParseCIDR(rule.Address)
 			if err != nil {
-				log.Printf("Error parsing CIDR %s: %v", rule.Address, err)
+				errorf("Error parsing CIDR %s: %v", rule.Address, err)
 				continue
 			}
 
 			newSrcIP := ipnet.IP
-			log.Printf("RewriteSource: replacing link-local source %s with %s", ipv6.SrcIP, newSrcIP)
+			logf(1, "RewriteSource: replacing link-local source %s with %s", ipv6.SrcIP, newSrcIP)
 
 			ethLayer := packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet)
 
@@ -129,26 +130,29 @@ func handleNeighborSolicitation(packet gopacket.Packet, proxy Proxy, from *sysca
 
 			iface, err := findInterfaceForIP(ns.TargetAddress)
 			if err != nil {
-				log.Printf("Error finding interface for %s: %v", ns.TargetAddress, err)
+				errorf("Error finding interface for %s: %v", ns.TargetAddress, err)
 				return
 			}
+			logf(1, "RewriteSource: forwarding modified packet to %s", iface)
 			forwardPacket(newPacket, iface)
 		}
-		if ipInPrefix(ns.TargetAddress, rule.Address) {
+		// Check if the target address matches the rule's address prefix, and the packet is not outgoing(avoiding response loops)
+		if ipInPrefix(ns.TargetAddress, rule.Address) && from.Pkttype != syscall.PACKET_OUTGOING {
+			ethLayer := packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet)
 			if rule.Static {
-				log.Printf("Matched static rule for %s", ns.TargetAddress)
+				logf(1, "Matched static rule for %s, src MAC: %s, dst MAC: %s, src IP: %s, dst IP: %s", ns.TargetAddress, ethLayer.SrcMAC, ethLayer.DstMAC, ipv6.SrcIP, ipv6.DstIP)
 				sendNeighborAdvertisement(packet, proxy, &ns)
 				return
 			}
 			if rule.Iface != "" {
-				log.Printf("Matched iface rule for %s, forwarding to %s", ns.TargetAddress, rule.Iface)
+				logf(1, "Matched iface rule for %s, forwarding to %s", ns.TargetAddress, rule.Iface)
 				forwardPacket(packet, rule.Iface)
 				return
 			} else if rule.Auto {
-				log.Printf("Matched auto rule for %s", ns.TargetAddress)
+				logf(1, "Matched auto rule for %s", ns.TargetAddress)
 				iface, err := findInterfaceForIP(ns.TargetAddress)
 				if err != nil {
-					log.Printf("Error finding interface for %s: %v", ns.TargetAddress, err)
+					errorf("Error finding interface for %s: %v", ns.TargetAddress, err)
 					return
 				}
 				forwardPacket(packet, iface)
@@ -156,7 +160,7 @@ func handleNeighborSolicitation(packet gopacket.Packet, proxy Proxy, from *sysca
 			}
 		}
 	}
-	log.Printf("No rule matched for NS target address: %s", ns.TargetAddress)
+	logf(2, "No rule matched for NS target address: %s", ns.TargetAddress)
 }
 
 func sendNeighborAdvertisement(solPacket gopacket.Packet, proxy Proxy, ns *layers.ICMPv6NeighborSolicitation) {
@@ -168,8 +172,7 @@ func sendNeighborAdvertisement(solPacket gopacket.Packet, proxy Proxy, ns *layer
 
 	iface, err := net.InterfaceByName(proxy.Interface)
 	if err != nil {
-		log.Printf("Error getting interface %s: %v", proxy.Interface, err)
-		return
+		panicf("Error getting interface %s: %v", proxy.Interface, err)
 	}
 
 	// Create the Ethernet layer
@@ -199,14 +202,16 @@ func sendNeighborAdvertisement(solPacket gopacket.Packet, proxy Proxy, ns *layer
 		flags |= icmpv6FlagRouter
 	}
 	options := []layers.ICMPv6Option{}
-	if !ns.TargetAddress.Equal(ipv6.DstIP) {
+
+	// If the solicitation was sent to a multicast address, set the Override flag and include the Target Link-Layer Address option
+	if ipv6.DstIP.IsMulticast() {
 		flags |= icmpv6FlagOverride
 		options = append(options, layers.ICMPv6Option{
 			Type: layers.ICMPv6OptTargetAddress,
 			Data: iface.HardwareAddr,
 		})
 	}
-	log.Printf("Neighbor Advertisement Flags: %08b", flags)
+	logf(1, "Neighbor Advertisement Flags: %08b", flags)
 	na := &layers.ICMPv6NeighborAdvertisement{
 		TargetAddress: ns.TargetAddress,
 		Flags:         flags,
@@ -223,7 +228,7 @@ func sendNeighborAdvertisement(solPacket gopacket.Packet, proxy Proxy, ns *layer
 	// Send the packet
 	fd, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW, int(htons(syscall.ETH_P_ALL)))
 	if err != nil {
-		log.Printf("Error creating raw socket for sending: %v", err)
+		errorf("Error creating raw socket for sending: %v", err)
 		return
 	}
 	defer syscall.Close(fd)
@@ -234,7 +239,8 @@ func sendNeighborAdvertisement(solPacket gopacket.Packet, proxy Proxy, ns *layer
 	}
 
 	if err := syscall.Sendto(fd, buf.Bytes(), 0, addr); err != nil {
-		log.Printf("Error sending packet: %v", err)
+		errorf("Error sending packet: %v", err)
+		return
 	}
 }
 

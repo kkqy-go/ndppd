@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/hex"
-	"log"
 	"net"
 
 	"github.com/google/gopacket"
@@ -28,15 +27,15 @@ func hexToIP(hexIP string) (net.IP, error) {
 }
 
 func ipInPrefix(ip net.IP, prefix string) bool {
-	log.Printf("Checking if IP %s is in prefix %s", ip, prefix)
+	logf(2, "Checking if IP %s is in prefix %s", ip, prefix)
 	_, ipnet, err := net.ParseCIDR(prefix)
 	if err != nil {
-		log.Printf("Error parsing CIDR prefix '%s': %v", prefix, err)
+		errorf("Error parsing CIDR prefix '%s': %v", prefix, err)
 		return ip.Equal(net.ParseIP(prefix))
 	}
-	log.Printf("Parsed prefix '%s' into network %s", prefix, ipnet.String())
+	logf(2, "Parsed prefix '%s' into network %s", prefix, ipnet.String())
 	contains := ipnet.Contains(ip)
-	log.Printf("Does network %s contain %s? %t", ipnet.String(), ip.String(), contains)
+	logf(2, "Does network %s contain %s? %t", ipnet.String(), ip.String(), contains)
 	return contains
 }
 

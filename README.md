@@ -24,11 +24,12 @@ This is particularly useful in complex network environments, such as those with 
 ```
 # Proxy NDP packets on the eth0 interface
 proxy eth0 {
-    # Set the router flag on Neighbor Advertisements
+    # Set the router flag on Neighbor Advertisements.Default is yes.
     router yes
 
-    # When enabled, outgoing Neighbor Solicitations (NS) from a link-local source address will have their source address rewritten to the global address prefix from the matching rule.
-    rewrite_source yes
+    # When enabled, outgoing Neighbor Solicitations (NS) from a link-local source address will have their source address rewritten to the global address prefix from the matching rule. It is useful in some PVE environments.Default is no.
+    rewrite_source no
+
 
     # Rule for a static prefix. ndppd will reply to any NS request
     # for an address within this prefix using its own MAC address.

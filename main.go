@@ -3,8 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io"
-	"log"
 	"os"
 	"os/exec"
 )
@@ -13,15 +11,11 @@ var (
 	configFile = flag.String("c", "/etc/ndppd.conf", "Path to configuration file")
 	daemonize  = flag.Bool("d", false, "Daemonize")
 	pidFile    = flag.String("p", "", "Path to PID file")
-	verbose    = flag.Bool("v", false, "Enable verbose logging")
+	verbose    = flag.Int("v", 0, "Enable verbose logging")
 )
 
 func main() {
 	flag.Parse()
-
-	if !*verbose {
-		log.SetOutput(io.Discard)
-	}
 
 	if *daemonize {
 		args := os.Args[1:]
@@ -33,28 +27,27 @@ func main() {
 		}
 		cmd := exec.Command(os.Args[0], args...)
 		cmd.Start()
-		fmt.Println("Daemon started with PID:", cmd.Process.Pid)
+		logln(0, "Daemon started with PID:", cmd.Process.Pid)
 		os.Exit(0)
 	}
 
-	fmt.Printf("Config file: %s\n", *configFile)
-	fmt.Printf("PID file: %s\n", *pidFile)
-	fmt.Printf("Verbose: %t\n", *verbose)
+	logf(0, "Config file: %s\n", *configFile)
+	logf(0, "PID file: %s\n", *pidFile)
+	logf(0, "Verbose: %d\n", *verbose)
 
 	// Load configuration
 	config, err := ParseConfig(*configFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing config file: %v\n", err)
+		errorf("Error parsing config file: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("Configuration: %+v\n", config)
+	logf(0, "Configuration: %+v\n", config)
 
 	if *pidFile != "" {
 		f, err := os.Create(*pidFile)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating PID file: %v\n", err)
-			os.Exit(1)
+			panicf("Error creating PID file: %v\n", err)
 		}
 		defer f.Close()
 		fmt.Fprintf(f, "%d\n", os.Getpid())
